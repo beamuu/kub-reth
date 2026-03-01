@@ -1,0 +1,52 @@
+[package]
+name = "kubchain-consensus"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+homepage.workspace = true
+repository.workspace = true
+description = "KubChain PoSA consensus implementation for reth."
+
+[lints]
+workspace = true
+
+[dependencies]
+# kubchain
+kubchain-primitives = { path = "../primitives" }
+kubchain-hardforks = { path = "../hardforks" }
+kubchain-chainspec = { path = "../chainspec" }
+
+# reth
+reth-consensus.workspace = true
+reth-consensus-common.workspace = true
+reth-chainspec.workspace = true
+reth-primitives-traits.workspace = true
+reth-execution-types.workspace = true
+
+# alloy
+alloy-primitives = { workspace = true, features = ["serde"] }
+alloy-consensus.workspace = true
+alloy-rlp.workspace = true
+
+# crypto
+secp256k1 = { version = "0.30", features = ["recovery"] }
+
+# misc
+tracing.workspace = true
+lru = "0.12"
+parking_lot = "0.12"
+thiserror = "2"
+
+[features]
+default = ["std"]
+std = [
+    "alloy-primitives/std",
+    "alloy-consensus/std",
+    "reth-consensus/std",
+    "reth-consensus-common/std",
+    "reth-chainspec/std",
+    "reth-primitives-traits/std",
+    "reth-execution-types/std",
+    "tracing/std",
+]

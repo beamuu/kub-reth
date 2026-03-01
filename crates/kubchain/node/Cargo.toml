@@ -1,0 +1,39 @@
+[package]
+name = "kubchain-node"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+homepage.workspace = true
+repository.workspace = true
+description = "KubChain node type and component assembly for reth."
+
+[lints]
+workspace = true
+
+[dependencies]
+# kubchain
+kubchain-primitives = { path = "../primitives" }
+kubchain-hardforks = { path = "../hardforks" }
+kubchain-chainspec = { path = "../chainspec" }
+kubchain-consensus = { path = "../consensus" }
+kubchain-contracts = { path = "../contracts" }
+kubchain-evm = { path = "../evm" }
+
+# reth
+reth-node-builder.workspace = true
+reth-primitives-traits.workspace = true
+reth-chainspec.workspace = true
+reth-consensus.workspace = true
+
+# alloy
+alloy-primitives.workspace = true
+
+[features]
+default = ["std"]
+std = [
+    "alloy-primitives/std",
+    "reth-primitives-traits/std",
+    "reth-chainspec/std",
+    "reth-consensus/std",
+]

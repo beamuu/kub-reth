@@ -1,0 +1,31 @@
+[package]
+name = "kubchain-contracts"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+homepage.workspace = true
+repository.workspace = true
+description = "KubChain system contract ABI bindings and interaction layer."
+
+[lints]
+workspace = true
+
+[dependencies]
+# kubchain
+kubchain-primitives = { path = "../primitives" }
+
+# alloy
+alloy-primitives = { workspace = true, features = ["serde"] }
+alloy-sol-types.workspace = true
+
+# misc
+tracing.workspace = true
+
+[features]
+default = ["std"]
+std = [
+    "alloy-primitives/std",
+    "alloy-sol-types/std",
+    "tracing/std",
+]
