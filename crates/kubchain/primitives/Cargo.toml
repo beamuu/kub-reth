@@ -1,0 +1,31 @@
+[package]
+name = "kubchain-primitives"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+homepage.workspace = true
+repository.workspace = true
+description = "KubChain primitive types for consensus and system contracts."
+
+[lints]
+workspace = true
+
+[dependencies]
+# alloy
+alloy-primitives = { workspace = true, features = ["serde", "rlp"] }
+alloy-rlp = { workspace = true, features = ["derive"] }
+
+# reth
+reth-primitives-traits.workspace = true
+
+# misc
+serde = { version = "1", features = ["derive"] }
+
+[features]
+default = ["std"]
+std = [
+    "alloy-primitives/std",
+    "alloy-rlp/std",
+    "reth-primitives-traits/std",
+]

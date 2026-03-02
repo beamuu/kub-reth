@@ -1,0 +1,42 @@
+[package]
+name = "kubchain-chainspec"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+homepage.workspace = true
+repository.workspace = true
+description = "KubChain chain specification and genesis configuration."
+
+[lints]
+workspace = true
+
+[dependencies]
+# kubchain
+kubchain-primitives = { path = "../primitives" }
+kubchain-hardforks = { path = "../hardforks" }
+
+# reth
+reth-chainspec.workspace = true
+reth-ethereum-forks.workspace = true
+reth-primitives.workspace = true
+reth-primitives-traits.workspace = true
+
+# alloy
+alloy-primitives = { workspace = true, features = ["serde", "rlp"] }
+alloy-consensus.workspace = true
+
+# misc
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[features]
+default = ["std"]
+std = [
+    "alloy-primitives/std",
+    "alloy-consensus/std",
+    "reth-chainspec/std",
+    "reth-ethereum-forks/std",
+    "reth-primitives/std",
+    "reth-primitives-traits/std",
+]

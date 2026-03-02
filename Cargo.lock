@@ -5329,6 +5329,114 @@ dependencies = [
 ]
 
 [[package]]
+name = "kubchain-chainspec"
+version = "1.7.0"
+dependencies = [
+ "alloy-consensus",
+ "alloy-primitives",
+ "kubchain-hardforks",
+ "kubchain-primitives",
+ "reth-chainspec",
+ "reth-ethereum-forks",
+ "reth-primitives",
+ "reth-primitives-traits",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "kubchain-consensus"
+version = "1.7.0"
+dependencies = [
+ "alloy-consensus",
+ "alloy-primitives",
+ "alloy-rlp",
+ "kubchain-chainspec",
+ "kubchain-hardforks",
+ "kubchain-primitives",
+ "lru 0.12.5",
+ "parking_lot",
+ "reth-chainspec",
+ "reth-consensus",
+ "reth-consensus-common",
+ "reth-execution-types",
+ "reth-primitives-traits",
+ "secp256k1 0.30.0",
+ "thiserror 2.0.17",
+ "tracing",
+]
+
+[[package]]
+name = "kubchain-contracts"
+version = "1.7.0"
+dependencies = [
+ "alloy-primitives",
+ "alloy-sol-types",
+ "kubchain-primitives",
+ "tracing",
+]
+
+[[package]]
+name = "kubchain-evm"
+version = "1.7.0"
+dependencies = [
+ "alloy-consensus",
+ "alloy-eips",
+ "alloy-evm",
+ "alloy-primitives",
+ "alloy-rlp",
+ "alloy-sol-types",
+ "kubchain-chainspec",
+ "kubchain-contracts",
+ "kubchain-hardforks",
+ "kubchain-primitives",
+ "reth-chainspec",
+ "reth-ethereum-primitives",
+ "reth-evm",
+ "reth-execution-types",
+ "reth-primitives-traits",
+ "revm",
+ "tracing",
+]
+
+[[package]]
+name = "kubchain-hardforks"
+version = "1.7.0"
+dependencies = [
+ "alloy-hardforks",
+ "alloy-primitives",
+ "reth-chainspec",
+ "reth-ethereum-forks",
+]
+
+[[package]]
+name = "kubchain-node"
+version = "1.7.0"
+dependencies = [
+ "alloy-primitives",
+ "kubchain-chainspec",
+ "kubchain-consensus",
+ "kubchain-contracts",
+ "kubchain-evm",
+ "kubchain-hardforks",
+ "kubchain-primitives",
+ "reth-chainspec",
+ "reth-consensus",
+ "reth-node-builder",
+ "reth-primitives-traits",
+]
+
+[[package]]
+name = "kubchain-primitives"
+version = "1.7.0"
+dependencies = [
+ "alloy-primitives",
+ "alloy-rlp",
+ "reth-primitives-traits",
+ "serde",
+]
+
+[[package]]
 name = "lazy_static"
 version = "1.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"

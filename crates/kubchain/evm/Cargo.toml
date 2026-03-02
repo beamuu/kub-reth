@@ -1,0 +1,55 @@
+[package]
+name = "kubchain-evm"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+homepage.workspace = true
+repository.workspace = true
+description = "KubChain EVM configuration with system transaction injection."
+
+[lints]
+workspace = true
+
+[dependencies]
+# kubchain
+kubchain-primitives = { path = "../primitives" }
+kubchain-hardforks = { path = "../hardforks" }
+kubchain-chainspec = { path = "../chainspec" }
+kubchain-contracts = { path = "../contracts" }
+
+# reth
+reth-evm.workspace = true
+reth-chainspec.workspace = true
+reth-primitives-traits.workspace = true
+reth-execution-types.workspace = true
+reth-ethereum-primitives.workspace = true
+
+# alloy
+alloy-primitives.workspace = true
+alloy-consensus.workspace = true
+alloy-eips.workspace = true
+alloy-evm.workspace = true
+alloy-sol-types.workspace = true
+alloy-rlp.workspace = true
+
+# revm
+revm.workspace = true
+
+# misc
+tracing.workspace = true
+
+[features]
+default = ["std"]
+std = [
+    "alloy-primitives/std",
+    "alloy-consensus/std",
+    "alloy-eips/std",
+    "alloy-evm/std",
+    "reth-evm/std",
+    "reth-chainspec/std",
+    "reth-primitives-traits/std",
+    "reth-execution-types/std",
+    "reth-ethereum-primitives/std",
+    "tracing/std",
+]

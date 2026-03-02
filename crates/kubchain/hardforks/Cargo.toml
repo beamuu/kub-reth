@@ -1,0 +1,29 @@
+[package]
+name = "kubchain-hardforks"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+homepage.workspace = true
+repository.workspace = true
+description = "KubChain hardfork definitions for the PoSA consensus."
+
+[lints]
+workspace = true
+
+[dependencies]
+# reth
+reth-chainspec.workspace = true
+reth-ethereum-forks.workspace = true
+
+# alloy
+alloy-primitives = { workspace = true, features = ["serde"] }
+alloy-hardforks.workspace = true
+
+[features]
+default = ["std"]
+std = [
+    "alloy-primitives/std",
+    "reth-chainspec/std",
+    "reth-ethereum-forks/std",
+]
