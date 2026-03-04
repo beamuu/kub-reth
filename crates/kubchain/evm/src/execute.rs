@@ -7,7 +7,7 @@
 //! - Standard transaction execution with fees routed to SystemAddress
 //! - System transaction injection in `finish()` (commitSpan, slash, distributeReward)
 
-use alloc::{boxed::Box, sync::Arc, vec::Vec};
+use alloc::{boxed::Box, format, sync::Arc, vec::Vec};
 use alloy_consensus::Transaction;
 use alloy_eips::Encodable2718;
 use alloy_evm::{
@@ -17,16 +17,16 @@ use alloy_evm::{
     },
     Database, Evm, EvmFactory, FromRecoveredTx, FromTxWithEncoded,
 };
-use alloy_primitives::{Address, B256};
+use alloy_primitives::{Address, B256, U256};
 use kubchain_chainspec::KubChainSpec;
 use kubchain_hardforks::KubHardfork;
-use kubchain_primitives::{is_span_commitment_block, SystemContracts, DIFF_NO_TURN};
+use kubchain_primitives::{is_span_commitment_block, SystemContracts, DIFF_NO_TURN, SYSTEM_ADDRESS};
 use reth_chainspec::{EthereumHardforks, Hardforks};
 use reth_ethereum_primitives::{Receipt, TransactionSigned};
 use reth_evm::{precompiles::PrecompilesMap, TransactionEnv};
 use revm::{
     context::result::ExecutionResult, context_interface::result::ResultAndState, database::State,
-    DatabaseCommit, Inspector,
+    database_interface::Database as RevmDatabase, DatabaseCommit, Inspector,
 };
 
 extern crate alloc;
@@ -120,28 +120,19 @@ where
         // - EIP-2935 block hash contract calls (no Shanghai)
         // - EIP-4788 beacon root contract calls (no beacon chain)
 
-        // TODO: Apply hardfork state migrations if this is an activation block.
-        // - Lausanne: Deploy V2 contract bytecodes + update storage slots
-        // - Basel: Deploy V3 contract bytecodes + init SuperNode
-        // These require the actual contract bytecodes from bkc source.
-        if self
-            .chain_spec()
-            .inner()
-            .fork(KubHardfork::Lausanne)
-            .transitions_at_block(block_number)
-        {
-            tracing::info!(block_number, "Applying Lausanne hardfork state migration");
-            // apply_lausanne_migration(&mut self.evm, self.chain_spec)?;
+        // Apply hardfork state migrations if this is a hardfork activation block.
+        // These run before any user transactions for the block.
+        //
+        // Clone the Arc to avoid a simultaneous mutable (evm.db_mut()) and
+        // immutable (chain_spec()) borrow of `self`.
+        let chain_spec = Arc::clone(&self.ctx.chain_spec);
+
+        if chain_spec.inner().fork(KubHardfork::Lausanne).transitions_at_block(block_number) {
+            crate::hardfork::apply_lausanne_hardfork(self.evm.db_mut(), &chain_spec)?;
         }
 
-        if self
-            .chain_spec()
-            .inner()
-            .fork(KubHardfork::Basel)
-            .transitions_at_block(block_number)
-        {
-            tracing::info!(block_number, "Applying Basel hardfork state migration");
-            // apply_basel_migration(&mut self.evm, self.chain_spec)?;
+        if chain_spec.inner().fork(KubHardfork::Basel).transitions_at_block(block_number) {
+            crate::hardfork::apply_basel_hardfork(self.evm.db_mut(), &chain_spec)?;
         }
 
         Ok(())
@@ -193,52 +184,114 @@ where
     }
 
     fn finish(
-        self,
+        mut self,
     ) -> Result<(Self::Evm, BlockExecutionResult<Receipt>), BlockExecutionError> {
         let block_number: u64 = self.evm.block().number.saturating_to();
         let span = self.chain_spec().span();
+        let coinbase = self.ctx.signer;
 
         // === Post-execution system transactions ===
         //
-        // In bkc, these are injected during Finalize(). In reth, they
-        // happen in finish() after all user transactions have executed.
+        // In bkc, these are injected during Finalize(). In reth, they happen in
+        // finish() after all user transactions have executed. All three system txs
+        // are guarded by the Chaophraya (PoSA activation) hardfork.
 
-        // 1. commitSpan() — at span commitment blocks (span/2 + 1)
-        if is_span_commitment_block(span, block_number) {
-            tracing::debug!(
-                block_number,
-                span,
-                "Span commitment block — commitSpan() system tx would be injected"
-            );
-            // TODO: Build and execute commitSpan system transaction.
-            // This requires:
-            // - Fetching eligible validators from ValidatorSet contract
-            // - RLP-encoding the validator bytes
-            // - Executing the system tx via the EVM
+        let posa_active = self
+            .chain_spec()
+            .inner()
+            .fork(KubHardfork::Chaophraya)
+            .active_at_block(block_number);
+
+        if posa_active {
+            let validator_contract = self.chain_spec().validator_contract;
+
+            // 1. commitSpan() — at span commitment blocks (block_number == span/2 + 1 mod span)
+            //
+            // Queries eligible validators from the ValidatorSet contract, then calls
+            // commitSpan(bytes validatorBytes) to schedule the next validator set.
+            if is_span_commitment_block(span, block_number) && !validator_contract.is_zero() {
+                let validators =
+                    crate::caller::query_eligible_validators(&mut self.evm, validator_contract)?;
+                let calldata = crate::system_tx::build_commit_span_calldata(&validators);
+                let ResultAndState { result: _, state } = self
+                    .evm
+                    .transact_system_call(coinbase, validator_contract, calldata)
+                    .map_err(|e| BlockExecutionError::msg(format!("commitSpan failed: {e}")))?;
+                self.evm.db_mut().commit(state);
+                tracing::debug!(block_number, span, "commitSpan system tx executed");
+            }
+
+            // 2. slash() — when an out-of-turn block is signed by an official/super node
+            //
+            // Checks if the signer has already been slashed for the current span to
+            // avoid duplicate slashes. Only injects slash() if the signer is a known
+            // official or super node (non-zero slash_manager indicates PoSA is active).
+            let difficulty: u64 = self.evm.block().difficulty.saturating_to();
+            let slash_manager = self.ctx.system_contracts.slash_manager;
+            if difficulty == DIFF_NO_TURN
+                && !validator_contract.is_zero()
+                && !slash_manager.is_zero()
+            {
+                let current_span =
+                    crate::caller::query_current_span(&mut self.evm, validator_contract)?;
+                let already_slashed = crate::caller::query_is_signer_slashed(
+                    &mut self.evm,
+                    slash_manager,
+                    coinbase,
+                    current_span,
+                )?;
+                if !already_slashed {
+                    let calldata =
+                        crate::system_tx::build_slash_calldata(coinbase, current_span);
+                    let ResultAndState { result: _, state } = self
+                        .evm
+                        .transact_system_call(coinbase, slash_manager, calldata)
+                        .map_err(|e| BlockExecutionError::msg(format!("slash failed: {e}")))?;
+                    self.evm.db_mut().commit(state);
+                    tracing::debug!(
+                        block_number,
+                        signer = %coinbase,
+                        "slash system tx executed"
+                    );
+                }
+            }
+
+            // 3. distributeReward() — every block, transfers accumulated fees to validator
+            //
+            // Reads the fee balance accumulated at SystemAddress during transaction
+            // execution (beneficiary was set to SystemAddress by evm_env when Chaophraya
+            // is active). Calls distributeReward(amount, validator) on StakeManager.
+            let stake_manager = self.ctx.system_contracts.stake_manager;
+            if !stake_manager.is_zero() {
+                let fees = self
+                    .evm
+                    .db_mut()
+                    .basic(SYSTEM_ADDRESS)
+                    .map_err(|_| {
+                        BlockExecutionError::msg("Failed to read SystemAddress balance")
+                    })?
+                    .map(|a| a.balance)
+                    .unwrap_or(U256::ZERO);
+
+                if fees > U256::ZERO {
+                    let calldata =
+                        crate::system_tx::build_distribute_reward_calldata(fees, coinbase);
+                    let ResultAndState { result: _, state } = self
+                        .evm
+                        .transact_system_call(SYSTEM_ADDRESS, stake_manager, calldata)
+                        .map_err(|e| {
+                            BlockExecutionError::msg(format!("distributeReward failed: {e}"))
+                        })?;
+                    self.evm.db_mut().commit(state);
+                    tracing::debug!(
+                        block_number,
+                        %fees,
+                        validator = %coinbase,
+                        "distributeReward system tx executed"
+                    );
+                }
+            }
         }
-
-        // 2. slash() — when out-of-turn block signed by official/super node
-        let difficulty: u64 = self.evm.block().difficulty.saturating_to();
-        if difficulty == DIFF_NO_TURN {
-            // Check if signer is an official/super node and hasn't been slashed yet.
-            // TODO: Query SlashManager.isSignerSlashed() and conditionally execute slash().
-            tracing::debug!(
-                block_number,
-                signer = ?self.ctx.signer,
-                "Out-of-turn block — slash check needed"
-            );
-        }
-
-        // 3. distributeReward() — every block (transfers accumulated fees)
-        //
-        // In bkc: balance at SystemAddress is moved to coinbase, then
-        // distributeReward() is called on StakeManager with msg.value = balance.
-        //
-        // TODO: Implement the actual balance transfer + system tx execution.
-        tracing::debug!(
-            block_number,
-            "distributeReward() system tx would be injected"
-        );
 
         Ok((
             self.evm,
