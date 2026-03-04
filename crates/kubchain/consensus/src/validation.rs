@@ -7,7 +7,7 @@ use kubchain_chainspec::KubChainSpec;
 use kubchain_primitives::{DIFF_IN_TURN, DIFF_NO_TURN, EXTRA_SEAL, EXTRA_VANITY};
 use reth_consensus::ConsensusError;
 use reth_execution_types::BlockExecutionResult;
-use reth_primitives_traits::{Block, GotExpected, RecoveredBlock, SealedBlock, SealedHeader};
+use reth_primitives_traits::{Block, RecoveredBlock, SealedBlock, SealedHeader};
 
 /// Validates a header in isolation (no parent context).
 ///
@@ -105,25 +105,24 @@ pub fn validate_block_pre_execution<B: Block<Header = Header>>(
 
 /// Validates a block after execution.
 ///
-/// Checks:
-/// - State root matches execution result
-/// - Receipt root matches
-/// - Gas used matches
+/// Checks (delegated to the shared Ethereum implementation):
+/// - Gas used matches the cumulative gas from receipts
+/// - Receipts root and logs bloom match the header (Byzantium+, always true for KubChain)
+///
+/// Note: Prague requests hash is never checked because KubChain is capped at London.
 pub fn validate_block_post_execution<N: reth_primitives_traits::NodePrimitives>(
-    _block: &RecoveredBlock<N::Block>,
-    _result: &BlockExecutionResult<N::Receipt>,
-    _chain_spec: &KubChainSpec,
+    block: &RecoveredBlock<N::Block>,
+    result: &BlockExecutionResult<N::Receipt>,
+    chain_spec: &KubChainSpec,
 ) -> Result<(), ConsensusError>
 where
     N::Block: Block<Header = Header>,
+    N::Receipt: reth_primitives_traits::Receipt,
 {
-    // Post-execution validation will verify:
-    // 1. State root matches
-    // 2. Receipt root matches
-    // 3. Gas used matches
-    // 4. Bloom filter matches
-    //
-    // TODO: Implement full post-execution validation once the EVM executor
-    // is integrated and system transactions are properly injected.
-    Ok(())
+    reth_ethereum_consensus::validate_block_post_execution(
+        block,
+        chain_spec,
+        &result.receipts,
+        &result.requests,
+    )
 }
