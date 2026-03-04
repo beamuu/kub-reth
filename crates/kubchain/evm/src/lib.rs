@@ -37,7 +37,7 @@ extern crate alloc;
 use alloc::sync::Arc;
 use alloy_consensus::Header;
 use alloy_evm::{EthEvmFactory, FromRecoveredTx, FromTxWithEncoded};
-use alloy_primitives::{Address, U256};
+use alloy_primitives::U256;
 use core::{convert::Infallible, fmt::Debug};
 use kubchain_chainspec::KubChainSpec;
 use kubchain_hardforks::KubHardfork;
@@ -50,7 +50,8 @@ use alloy_eips as _;
 use alloy_rlp as _;
 use reth_execution_types as _;
 use reth_evm::{
-    precompiles::PrecompilesMap, ConfigureEvm, EvmEnv, EvmFactory, TransactionEnv,
+    precompiles::PrecompilesMap, ConfigureEvm, EvmEnv, EvmFactory, NextBlockEnvAttributes,
+    TransactionEnv,
 };
 use reth_primitives_traits::{SealedBlock, SealedHeader};
 use revm::{
@@ -71,22 +72,8 @@ pub use execute::{KubBlockExecutionCtx, KubBlockExecutor, KubBlockExecutorFactor
 
 use alloy_consensus::Block;
 
-/// Attributes for configuring the next KubChain block.
-///
-/// KubChain blocks are simpler than Ethereum — no beacon root, no withdrawals,
-/// no prev_randao. The consensus layer provides:
-/// - Timestamp (from block period configuration)
-/// - Fee recipient (block producer / coinbase)
-/// - Gas limit
-#[derive(Debug, Clone)]
-pub struct KubNextBlockEnvCtx {
-    /// Block timestamp.
-    pub timestamp: u64,
-    /// Block producer address (coinbase).
-    pub suggested_fee_recipient: Address,
-    /// Block gas limit.
-    pub gas_limit: u64,
-}
+// KubChain reuses reth_evm::NextBlockEnvAttributes for the next-block context.
+// The `prev_randao` and `parent_beacon_block_root` fields are ignored (KubChain is not PoS).
 
 /// KubChain EVM configuration.
 ///
@@ -148,7 +135,7 @@ where
 {
     type Primitives = EthPrimitives;
     type Error = Infallible;
-    type NextBlockEnvCtx = KubNextBlockEnvCtx;
+    type NextBlockEnvCtx = NextBlockEnvAttributes;
     type BlockExecutorFactory = KubBlockExecutorFactory<EvmF>;
     type BlockAssembler = KubBlockAssembler;
 
@@ -200,7 +187,7 @@ where
     fn next_evm_env(
         &self,
         parent: &Header,
-        attributes: &KubNextBlockEnvCtx,
+        attributes: &NextBlockEnvAttributes,
     ) -> Result<EvmEnv, Self::Error> {
         let next_block_number = parent.number + 1;
         let spec = config::kub_revm_spec_by_block_number(
@@ -274,9 +261,99 @@ where
     }
 }
 
+// ── Engine EVM integration ────────────────────────────────────────────────────
+// `ConfigureEngineEvm` lets reth use KubEvmConfig in the Engine API path
+// (block import validation, block building). KubChain does not use the beacon
+// Engine API for block production, but reth requires this trait for AddOns.
+
+#[cfg(feature = "std")]
+mod engine_evm {
+    use super::*;
+    use alloy_rpc_types_engine::ExecutionData;
+    use alloy_eips::Decodable2718;
+    use reth_evm::{ConfigureEngineEvm, ExecutableTxIterator, ExecutionCtxFor, EvmEnvFor};
+    use reth_primitives_traits::{SignedTransaction, TxTy};
+    use reth_storage_errors::any::AnyError;
+
+    impl<EvmF> ConfigureEngineEvm<ExecutionData> for KubEvmConfig<EvmF>
+    where
+        EvmF: EvmFactory<
+                Tx: TransactionEnv
+                        + FromRecoveredTx<TransactionSigned>
+                        + FromTxWithEncoded<TransactionSigned>,
+                Spec = SpecId,
+                Precompiles = PrecompilesMap,
+            > + Clone
+            + Debug
+            + Send
+            + Sync
+            + Unpin
+            + 'static,
+    {
+        fn evm_env_for_payload(&self, payload: &ExecutionData) -> EvmEnvFor<Self> {
+            let block_number = payload.payload.block_number();
+            let timestamp = payload.payload.timestamp();
+            let spec = config::kub_revm_spec_by_block_number(self.chain_spec.inner(), block_number);
+
+            let cfg_env = CfgEnv::new()
+                .with_chain_id(self.chain_spec.chain_id())
+                .with_spec(spec);
+
+            let beneficiary = if self
+                .chain_spec
+                .inner()
+                .fork(KubHardfork::Chaophraya)
+                .active_at_block(block_number)
+            {
+                SYSTEM_ADDRESS
+            } else {
+                payload.payload.fee_recipient()
+            };
+
+            let basefee = payload.payload.saturated_base_fee_per_gas();
+
+            let block_env = BlockEnv {
+                number: U256::from(block_number),
+                beneficiary,
+                timestamp: U256::from(timestamp),
+                difficulty: U256::ZERO,
+                prevrandao: None,
+                gas_limit: payload.payload.gas_limit(),
+                basefee,
+                blob_excess_gas_and_price: None,
+            };
+
+            EvmEnv { cfg_env, block_env }
+        }
+
+        fn context_for_payload<'a>(&self, payload: &'a ExecutionData) -> ExecutionCtxFor<'a, Self> {
+            KubBlockExecutionCtx {
+                parent_hash: payload.parent_hash(),
+                chain_spec: self.chain_spec.clone(),
+                signer: payload.payload.fee_recipient(),
+                system_contracts: SystemContracts::default(),
+            }
+        }
+
+        fn tx_iterator_for_payload(
+            &self,
+            payload: &ExecutionData,
+        ) -> impl ExecutableTxIterator<Self> {
+            payload.payload.transactions().clone().into_iter().map(|tx| {
+                let tx = TxTy::<EthPrimitives>::decode_2718_exact(tx.as_ref())
+                    .map_err(AnyError::new)?;
+                let signer = tx.try_recover().map_err(AnyError::new)?;
+                Ok::<_, AnyError>(tx.with_signer(signer))
+            })
+        }
+    }
+
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use alloy_primitives::Address;
     use kubchain_chainspec::dev::kub_dev_chain_spec;
 
     #[test]
@@ -328,10 +405,13 @@ mod tests {
             ..Default::default()
         };
 
-        let attrs = KubNextBlockEnvCtx {
+        let attrs = NextBlockEnvAttributes {
             timestamp: 100,
             suggested_fee_recipient: Address::ZERO,
             gas_limit: 30_000_000,
+            prev_randao: alloy_primitives::B256::ZERO,
+            parent_beacon_block_root: None,
+            withdrawals: None,
         };
 
         let env = config.next_evm_env(&parent, &attrs).unwrap();

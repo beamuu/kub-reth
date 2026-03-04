@@ -5329,15 +5329,37 @@ dependencies = [
 ]
 
 [[package]]
+name = "kub-reth"
+version = "1.7.0"
+dependencies = [
+ "clap",
+ "eyre",
+ "kubchain-chainspec",
+ "kubchain-consensus",
+ "kubchain-evm",
+ "kubchain-node",
+ "reth-cli",
+ "reth-cli-util",
+ "reth-ethereum-cli",
+ "reth-node-builder",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
 name = "kubchain-chainspec"
 version = "1.7.0"
 dependencies = [
+ "alloy-chains",
  "alloy-consensus",
+ "alloy-eips",
+ "alloy-genesis",
  "alloy-primitives",
  "kubchain-hardforks",
  "kubchain-primitives",
  "reth-chainspec",
  "reth-ethereum-forks",
+ "reth-network-peers",
  "reth-primitives",
  "reth-primitives-traits",
  "serde",
@@ -5385,6 +5407,7 @@ dependencies = [
  "alloy-evm",
  "alloy-primitives",
  "alloy-rlp",
+ "alloy-rpc-types-engine",
  "alloy-sol-types",
  "kubchain-chainspec",
  "kubchain-contracts",
@@ -5395,6 +5418,7 @@ dependencies = [
  "reth-evm",
  "reth-execution-types",
  "reth-primitives-traits",
+ "reth-storage-errors",
  "revm",
  "tracing",
 ]
@@ -5414,6 +5438,7 @@ name = "kubchain-node"
 version = "1.7.0"
 dependencies = [
  "alloy-primitives",
+ "eyre",
  "kubchain-chainspec",
  "kubchain-consensus",
  "kubchain-contracts",
@@ -5422,8 +5447,11 @@ dependencies = [
  "kubchain-primitives",
  "reth-chainspec",
  "reth-consensus",
+ "reth-ethereum-primitives",
  "reth-node-builder",
+ "reth-node-ethereum",
  "reth-primitives-traits",
+ "reth-provider",
 ]
 
 [[package]]

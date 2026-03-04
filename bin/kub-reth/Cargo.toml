@@ -1,0 +1,47 @@
+[package]
+name = "kub-reth"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+homepage.workspace = true
+repository.workspace = true
+description = "KubChain execution client built on reth."
+default-run = "kub-reth"
+
+[lints]
+workspace = true
+
+[dependencies]
+# kubchain
+kubchain-node      = { path = "../../crates/kubchain/node" }
+kubchain-chainspec = { path = "../../crates/kubchain/chainspec" }
+kubchain-consensus = { path = "../../crates/kubchain/consensus" }
+kubchain-evm       = { path = "../../crates/kubchain/evm" }
+
+# reth
+reth-ethereum-cli.workspace = true
+reth-node-builder.workspace = true
+reth-cli.workspace = true
+reth-cli-util.workspace = true
+
+# tracing
+tracing.workspace = true
+
+# async
+tokio = { workspace = true, features = ["sync", "macros", "time", "rt-multi-thread"] }
+
+# misc
+clap = { workspace = true, features = ["derive", "env"] }
+eyre.workspace = true
+
+[[bin]]
+name = "kub-reth"
+path = "src/main.rs"
+
+[features]
+default = ["jemalloc"]
+
+jemalloc = [
+    "reth-cli-util/jemalloc",
+]
